@@ -1,9 +1,9 @@
 # Auto-consolidating instruction library for Claude Code
 
 **Goal.** Claude Code behaves normally for the user, but in the background it watches what the
-user asks for, and over time distills it into a reusable, indexed library of *task formulations*
-under `./.INSTRUCTIONS/`. When a new session starts, the relevant formulations are surfaced so the
-user can reuse a polished task spec instead of re-deriving it mid-task.
+user asks for, and over time distills it into a reusable, indexed library of *instructions*
+under `./.INSTRUCTIONS/`. When a new session starts, the relevant instructions are surfaced so the
+user can reuse a polished instruction instead of re-deriving it each time.
 
 All Claude Code features referenced here were verified against the official docs on 2026-06-04
 (`code.claude.com/docs/en/hooks`, `/skills`, `/headless`).
@@ -13,25 +13,25 @@ All Claude Code features referenced here were verified against the official docs
 ## 1. The problem, independent of Claude Code
 
 This is **intent / spec mining**: turning a noisy, append-only stream of user utterances
-(instructions, mid-task corrections, clarifications, "no, do it this way instead") into a clean,
+(instructions, mid-conversation corrections, clarifications, "no, do it this way instead") into a clean,
 generalized, reusable artifact. Three data layers, each with a different lifecycle:
 
 | Layer | Nature | Lifecycle |
 |-------|--------|-----------|
 | **Raw capture** | Append-only log of exactly what the user typed, per session | Never edited, lossless audit trail |
-| **Consolidated formulation** | One markdown file per *task type*, regenerable & idempotent | Rewritten on each consolidation |
-| **Index** | Catalog of formulations, used for surfacing/matching | Regenerated from formulations |
+| **Consolidated instruction** | One markdown file per *kind of work*, regenerable & idempotent | Rewritten on each consolidation |
+| **Index** | Catalog of instructions, used for surfacing/matching | Regenerated from instructions |
 
 The hard parts (and the design choices that address them):
 
 - **Reusable vs. one-off.** Most of what a user says is session-specific ("fix line 42"). Only the
-  *generalizable procedure* belongs in a formulation. → Consolidation must **generalize and
+  *generalizable procedure* belongs in an instruction. → Consolidation must **generalize and
   parameterize** (replace concrete file names/values with named slots), and drop one-offs.
 - **Corrections override.** Later instructions supersede earlier ones in the same session. →
   Consolidation reads the log **in order** and keeps the final intent, not the first attempt.
 - **Idempotent merge.** Re-running on a session that's already captured must update, not duplicate.
-  → Formulations are keyed by a stable task-type slug; consolidation merges into the existing file.
-- **Clustering into task types.** When does a session belong to an existing formulation vs. a new
+  → Instructions are keyed by a stable slug; consolidation merges into the existing file.
+- **Clustering into kinds of work.** When does a session belong to an existing instruction vs. a new
   one? → The consolidator is given the current index and decides "extend `X`" or "create new".
 - **Cost.** Generalization needs an LLM; running one every turn is wasteful. → **Capture cheaply
   (no LLM), consolidate only at boundaries (LLM).**
@@ -64,7 +64,7 @@ on exit 2), **`statusMessage`** (spinner text), `once`, `if`. So background work
 non-interactively in `cwd`, reads stdin, writes files. This is the **consolidation engine** a
 command-hook calls. Notes:
 - `--output-format json` exposes `total_cost_usd` for spend tracking.
-- User-invoked skills are **not** available under `-p` — pass the full task in the prompt.
+- User-invoked skills are **not** available under `-p` — pass the full request in the prompt.
 - A headless call started inside a hook would itself load project hooks and could re-trigger
   SessionEnd → **recursion**. Guard with an env var (see scaffold) or `--bare` (note: `--bare`
   needs `ANTHROPIC_API_KEY`/`apiKeyHelper`, skipping OAuth).
@@ -90,75 +90,75 @@ scaffold uses `claude -p` for debuggability and lists this as the upgrade path.
 
 ## 3. Architecture (command-driven, global library)
 
-**Principle: a single global library of task formulations in the user directory; the user drives it
+**Principle: a single global library of instructions in the user directory; the user drives it
 with two commands; consolidation happens only on an explicit success signal, so the library only
-ever contains tasks Claude got *right*.**
+ever contains instructions Claude got *right*.**
 
 ```
 ~/.claude/.INSTRUCTIONS/          GLOBAL library, shared across every project
   index.md                        the pickable catalog
-  <slug>.md                       one reusable formulation per task type
+  <slug>.md                       one reusable instruction per kind of work
   .active/<session_id>            binding: the slug this session is working on
 
-/use-task (no arg) ─▶ REUSE path (optional). Read + show the index; user picks a slug; load
+/use-instruction (no arg) ─▶ REUSE path (optional). Read + show the index; user picks a slug; load
    (user-invoked)       <slug>.md as the working brief and write that slug to .active/<session_id>.
                         Not needed for fresh work. This is the ONLY thing that surfaces the index —
                         nothing is injected automatically at session start.
 
-  ... user works; corrections refine the loaded task in-conversation ...
+  ... user works; corrections refine the loaded instruction in-conversation ...
 
-/save-task (no arg) ─▶ THE SUCCESS SIGNAL. "Claude got it right." Resolve the slug:
+/save-instruction (no arg) ─▶ THE SUCCESS SIGNAL. "Claude got it right." Resolve the slug:
    (user-invoked)        bound (.active) → update silently; else SUGGEST likely index matches
                          + a "create new" option and let the user choose. Consolidate this
                          conversation into <slug>.md, rebuild index.md, persist the binding.
 ```
 
-`/save-task` alone is sufficient: starting fresh work needs no command — you work, then save, and
-the slug is generated. `/use-task` exists only for the reuse direction, where loading a proven spec
+`/save-instruction` alone is sufficient: starting fresh work needs no command — you work, then save, and
+the slug is generated. `/use-instruction` exists only for the reuse direction, where loading a proven spec
 *up front* steers the work instead of re-deriving it.
 
 Why this shape:
-- **Quality gate.** Nothing enters the library automatically. `/save-task` is the human saying
-  "this attempt was correct" — so the library is a set of *validated* formulations, not raw attempts.
+- **Quality gate.** Nothing enters the library automatically. `/save-instruction` is the human saying
+  "this attempt was correct" — so the library is a set of *validated* instructions, not raw attempts.
   This is the answer to "we need a way to know when Claude gets it right."
-- **Pick → refine → fold back.** `/use-task` makes X the brief; whatever the user corrects while
-  working is, on `/save-task`, merged back into X (corrected intent wins over the superseded spec).
+- **Pick → refine → fold back.** `/use-instruction` makes X the brief; whatever the user corrects while
+  working is, on `/save-instruction`, merged back into X (corrected intent wins over the superseded spec).
 - **Global & reusable.** Library lives in `~/.claude/.INSTRUCTIONS/`, so any conversation in any
   directory can pick from it.
 - **Stateful binding, no arguments.** The active slug is persisted to
-  `~/.claude/.INSTRUCTIONS/.active/<session_id>` by `/use-task` and read by `/save-task`, so both
-  commands run with no parameter. If nothing is bound, `/save-task` suggests likely index matches and
+  `~/.claude/.INSTRUCTIONS/.active/<session_id>` by `/use-instruction` and read by `/save-instruction`, so both
+  commands run with no parameter. If nothing is bound, `/save-instruction` suggests likely index matches and
   a "create new" option for the user to confirm (auto-generating the slug + a one-line doc on new).
 
 ### Layout
 ```
 <skills install dir>/.claude/       project .claude/ (this testbed) OR user ~/.claude/
-  skills/use-task/SKILL.md          reuse-an-existing-task command (optional)
-  skills/save-task/SKILL.md         success-signal / consolidate command
+  skills/use-instruction/SKILL.md          reuse-an-existing-instruction command (optional)
+  skills/save-instruction/SKILL.md         success-signal / consolidate command
 
 ~/.claude/.INSTRUCTIONS/            the global library (user directory)
   index.md
   <slug>.md
-  .active/<session_id>             per-session binding: the active task slug
+  .active/<session_id>             per-session binding: the active instruction slug
 ```
 
-To make `/use-task` and `/save-task` available in **every** conversation (not just this project),
+To make `/use-instruction` and `/save-instruction` available in **every** conversation (not just this project),
 move `skills/` into `~/.claude/skills/`. The library itself is already global. This testbed keeps the
 skills project-local so testing doesn't alter your global Claude Code setup. There is no hook and no
-`settings.json` — the index surfaces only when you run `/use-task`.
+`settings.json` — the index surfaces only when you run `/use-instruction`.
 
 ---
 
 ## 4. Tradeoffs & open questions
 
-- **Consolidation quality** lives entirely in `save-task/SKILL.md` — the real product surface.
+- **Consolidation quality** lives entirely in `save-instruction/SKILL.md` — the real product surface.
   Iterate that prompt; everything else is plumbing.
 - **Binding lifecycle.** `.active/<session_id>` files persist after the session ends and accumulate
   over time. They're tiny; prune them periodically (e.g. a SessionEnd cleanup or a cron). The
-  binding is keyed on `${CLAUDE_SESSION_ID}`, so resuming a session keeps its task.
-- **Cost.** `/save-task` runs the model once, in your interactive session (no extra headless call).
+  binding is keyed on `${CLAUDE_SESSION_ID}`, so resuming a session keeps its instruction.
+- **Cost.** `/save-instruction` runs the model once, in your interactive session (no extra headless call).
   Only fires when you ask.
-- **Skills are interactive-only.** `/use-task` and `/save-task` work in the interactive CLI, not
+- **Skills are interactive-only.** `/use-instruction` and `/save-instruction` work in the interactive CLI, not
   under `claude -p`.
 - **Discoverability vs. blast radius.** Promoting the skills to `~/.claude/` makes them universal but
   adds two always-available commands to every session — a deliberate choice, hence not done silently.
