@@ -1,16 +1,20 @@
 ---
 name: save-instruction
-description: Mark the current work as done correctly and capture or refine it as a reusable instruction in the global instruction library. The explicit "Claude got it right" signal — takes no argument; the instruction is read from the session binding or generated automatically.
+description: Mark the current work as done correctly and capture or refine it as a reusable instruction in the global instruction library. The explicit "Claude got it right" signal. Optionally pass what the instruction should generalize over.
 disable-model-invocation: true
+argument-hint: "[optional: what to generalize the instruction for]"
 allowed-tools: Read Write Edit AskUserQuestion Bash(mkdir *) Bash(printf *) Bash(cat *) Bash(ls *)
 ---
 
 Global instruction library (absolute path): !`echo "$HOME/.claude/.INSTRUCTIONS"`
 Bound slug for this session (empty if none): !`cat "$HOME/.claude/.INSTRUCTIONS/.active/${CLAUDE_SESSION_ID}" 2>/dev/null || true`
 
+Generalization directive (optional): `$ARGUMENTS`
+
 Call that library path **LIB**. The user is confirming this work was done correctly and wants it
-captured as a reusable instruction. Take **no argument** from the user — resolve the target slug
-yourself:
+captured as a reusable instruction. The optional argument above is **not** a slug — it tells you what
+the instruction should generalize over (the axis along which it will be reused). Resolve the target
+slug yourself:
 
 ## Resolve the slug
 - **Bound:** if the bound slug above is non-empty, use it (UPDATE that instruction) automatically —
@@ -30,12 +34,19 @@ session reuse the slug:
    - `printf '%s\n' '<slug>' > "$HOME/.claude/.INSTRUCTIONS/.active/${CLAUDE_SESSION_ID}"`
 
 ## Consolidate THIS conversation into `LIB/<slug>.md`
-Read the existing file first if it exists, then write a COMPLETE, CONCISE, GENERALIZED instruction:
+Read the existing file first if it exists, then write a COMPLETE, CONCISE, GENERALIZED instruction.
+A good instruction is **specific enough to one-shot the desired result, yet general enough to apply
+across the cases it's meant for** — getting that balance right is the whole point of this step.
+- **Set the generalization axis.** If a directive was passed in `$ARGUMENTS`, treat it as the
+  authoritative statement of what should vary between uses: pin down everything else, and
+  parameterize exactly what the directive says varies. If `$ARGUMENTS` is empty, infer the intended
+  axis from the conversation and any hints in the recorded steps (an educated guess), and **state the
+  assumption you made** in your final report so the user can correct it.
 - Capture the user's true final intent. Where you corrected course mid-conversation, keep the
   CORRECTED instruction and drop the superseded one — this is how an existing instruction absorbs the
   user's new intervention.
-- Replace conversation-specific values (file names, ids, literals) with `{{named_parameters}}` and
-  list them under Parameters.
+- Replace the values that vary along that axis (file names, ids, literals) with `{{named_parameters}}`
+  and list them under Parameters; keep everything that should stay constant concrete and explicit.
 - Phrase steps as imperative instructions to a future agent, not a narrative of what happened.
 - If the file already exists, MERGE into its structure — refine and tighten, never append
   duplicates.
@@ -80,6 +91,9 @@ done).
 ```
 
 Finally, report to the user:
-- which slug you created or updated, and
+- which slug you created or updated,
 - **what changed** — for a new instruction, a one-line description of what was captured; for an
-  update, a short bullet list of what you added, revised, or dropped relative to the previous version.
+  update, a short bullet list of what you added, revised, or dropped relative to the previous
+  version, and
+- **the generalization axis** you used — and, if you inferred it (no `$ARGUMENTS`), say so explicitly
+  so the user can re-run with a directive if it's wrong.

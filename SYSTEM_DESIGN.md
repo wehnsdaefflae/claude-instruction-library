@@ -107,10 +107,11 @@ ever contains instructions Claude got *right*.**
 
   ... user works; corrections refine the loaded instruction in-conversation ...
 
-/save-instruction (no arg) ─▶ THE SUCCESS SIGNAL. "Claude got it right." Resolve the slug:
+/save-instruction [axis] ─▶ THE SUCCESS SIGNAL. "Claude got it right." Resolve the slug:
    (user-invoked)        bound (.active) → update silently; else SUGGEST likely index matches
                          + a "create new" option and let the user choose. Consolidate this
-                         conversation into <slug>.md, rebuild index.md, persist the binding.
+                         conversation into <slug>.md along the generalization axis (from the
+                         optional arg, else inferred), rebuild index.md, persist the binding.
 ```
 
 `/save-instruction` alone is sufficient: starting fresh work needs no command — you work, then save, and
@@ -125,10 +126,16 @@ Why this shape:
   working is, on `/save-instruction`, merged back into X (corrected intent wins over the superseded spec).
 - **Global & reusable.** Library lives in `~/.claude/.INSTRUCTIONS/`, so any conversation in any
   directory can pick from it.
-- **Stateful binding, no arguments.** The active slug is persisted to
-  `~/.claude/.INSTRUCTIONS/.active/<session_id>` by `/use-instruction` and read by `/save-instruction`, so both
-  commands run with no parameter. If nothing is bound, `/save-instruction` suggests likely index matches and
-  a "create new" option for the user to confirm (auto-generating the slug + a one-line doc on new).
+- **Stateful binding.** The active slug is persisted to
+  `~/.claude/.INSTRUCTIONS/.active/<session_id>` by `/use-instruction` and read by `/save-instruction`,
+  so the slug never needs to be typed. If nothing is bound, `/save-instruction` suggests likely index
+  matches and a "create new" option for the user to confirm (auto-generating the slug + a one-line doc
+  on new).
+- **Generalization axis (optional arg).** `/save-instruction`'s one argument is *not* a slug — it
+  states what the instruction should generalize over (what varies between uses), so the consolidator
+  knows what to parameterize vs. pin down. Omit it and the axis is inferred from the conversation and
+  reported back, so the user can re-run with an explicit directive if the guess is off. This is the
+  knob for the specific-enough-yet-general-enough balance that makes an instruction reusable.
 
 ### Layout
 ```

@@ -4,8 +4,10 @@ Turn the prompt-engineering you do *during* a piece of work into a reusable, val
 you can pull off the shelf next time. Two slash commands maintain a global library of **instructions**
 in your user directory — generalized, parameterized briefs for the kinds of work you repeat.
 
-- **`/save-instruction`** — the "Claude got it right" signal. Run it when the work succeeded; it
-  consolidates the conversation into a reusable instruction and indexes it.
+- **`/save-instruction [what to generalize for]`** — the "Claude got it right" signal. Run it when
+  the work succeeded; it consolidates the conversation into a reusable instruction and indexes it. The
+  optional argument tells it what should vary between uses (the reuse axis) so it parameterizes the
+  right things; without it, that axis is inferred and reported back.
 - **`/use-instruction`** — reuse a saved instruction as the working brief so it steers the work from
   the first turn, instead of re-deriving it each time.
 
