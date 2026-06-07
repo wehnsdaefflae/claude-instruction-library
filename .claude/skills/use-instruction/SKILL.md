@@ -25,5 +25,10 @@ Do this:
    - `printf '%s\n' '<slug>' > "$HOME/.claude/.INSTRUCTIONS/.active/${CLAUDE_SESSION_ID}"`
 
 4. Tell the user which instruction is active, then ask for the inputs its Parameters need and proceed
-   following its Instructions. Any corrections the user makes now will be folded back into this
-   instruction when they run `/save-instruction`.
+   following its Instructions.
+
+5. **When you have finished the instruction's steps, close the loop:** tell the user the instruction
+   `<slug>` is complete, that they can keep refining or take further actions on top of the result,
+   and that running `/save-instruction` when they're done will fold those changes back into this
+   instruction (the session is already bound to it). Keep this to one short prompt — don't nag on
+   every later turn.

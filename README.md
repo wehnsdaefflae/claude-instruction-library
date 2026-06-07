@@ -30,8 +30,9 @@ The library lives at `~/.claude/.INSTRUCTIONS/` and is shared across every proje
   likely existing matches plus "create new" for you to choose, then writes/updates the instruction
   and reports what changed.
 - **Repeat work:** `/use-instruction` → pick an instruction → it becomes the brief and binds the
-  session. Corrections you make get folded back in. `/save-instruction` then updates that instruction
-  silently (you already declared intent) and reports the diff.
+  session. When its steps finish it reminds you that you can refine further and re-save. Corrections
+  you make get folded back in; `/save-instruction` then updates that instruction silently (you already
+  declared intent) and reports the diff.
 
 Consolidation generalizes the conversation: concrete values become `{{parameters}}`, mid-session
 corrections override the superseded version, and re-saving merges into the existing file rather than

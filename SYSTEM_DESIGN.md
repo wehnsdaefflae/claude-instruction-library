@@ -124,6 +124,8 @@ Why this shape:
   This is the answer to "we need a way to know when Claude gets it right."
 - **Pick → refine → fold back.** `/use-instruction` makes X the brief; whatever the user corrects while
   working is, on `/save-instruction`, merged back into X (corrected intent wins over the superseded spec).
+  When the instruction's steps finish, `/use-instruction` closes the loop — it reminds the user they
+  can refine further and re-save into X (the session is still bound).
 - **Global & reusable.** Library lives in `~/.claude/.INSTRUCTIONS/`, so any conversation in any
   directory can pick from it.
 - **Stateful binding.** The active slug is persisted to
