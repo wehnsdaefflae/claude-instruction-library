@@ -133,9 +133,11 @@ Why this shape:
   on new).
 - **Generalization axis (optional arg).** `/save-instruction`'s one argument is *not* a slug — it
   states what the instruction should generalize over (what varies between uses), so the consolidator
-  knows what to parameterize vs. pin down. Omit it and the axis is inferred from the conversation and
-  reported back, so the user can re-run with an explicit directive if the guess is off. This is the
-  knob for the specific-enough-yet-general-enough balance that makes an instruction reusable.
+  knows what to parameterize vs. pin down. If omitted: when the axis is clear from context it's used
+  and reported; when it's **ambiguous**, the skill asks via AskUserQuestion (clickable candidate axes
+  + free-text "Other") rather than guessing. This is the knob for the specific-enough-yet-general-
+  enough balance that makes an instruction reusable — resolved at save time so reuse needs no
+  intervention.
 
 ### Layout
 ```

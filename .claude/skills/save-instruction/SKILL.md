@@ -37,11 +37,17 @@ session reuse the slug:
 Read the existing file first if it exists, then write a COMPLETE, CONCISE, GENERALIZED instruction.
 A good instruction is **specific enough to one-shot the desired result, yet general enough to apply
 across the cases it's meant for** — getting that balance right is the whole point of this step.
-- **Set the generalization axis.** If a directive was passed in `$ARGUMENTS`, treat it as the
-  authoritative statement of what should vary between uses: pin down everything else, and
-  parameterize exactly what the directive says varies. If `$ARGUMENTS` is empty, infer the intended
-  axis from the conversation and any hints in the recorded steps (an educated guess), and **state the
-  assumption you made** in your final report so the user can correct it.
+- **Set the generalization axis.** Decide what should vary between uses (parameterize it) vs. what
+  stays fixed:
+  - **Directive given:** if `$ARGUMENTS` is non-empty, treat it as the authoritative statement of
+    what varies — parameterize exactly that, pin down everything else. Don't ask.
+  - **Clear from context:** if `$ARGUMENTS` is empty but a single axis is obviously implied by the
+    conversation and the recorded steps, use it and state it in your final report.
+  - **Ambiguous → ask:** if there's more than one plausible way to generalize, do NOT guess. Use
+    **AskUserQuestion** to present the 2–4 plausible axes as clickable options (the tool adds a
+    free-text "Other" automatically) and wait for the user's choice before writing the instruction.
+  The goal is an instruction that one-shots the result for every case on its axis without further
+  intervention — so resolve this ambiguity now, at save time, rather than leaving it for reuse time.
 - Capture the user's true final intent. Where you corrected course mid-conversation, keep the
   CORRECTED instruction and drop the superseded one — this is how an existing instruction absorbs the
   user's new intervention.

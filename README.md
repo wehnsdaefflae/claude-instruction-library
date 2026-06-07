@@ -7,7 +7,8 @@ in your user directory — generalized, parameterized briefs for the kinds of wo
 - **`/save-instruction [what to generalize for]`** — the "Claude got it right" signal. Run it when
   the work succeeded; it consolidates the conversation into a reusable instruction and indexes it. The
   optional argument tells it what should vary between uses (the reuse axis) so it parameterizes the
-  right things; without it, that axis is inferred and reported back.
+  right things; without it, the axis is used if clear, or — if ambiguous — you're asked with a
+  clickable choice (plus free-text) instead of it guessing.
 - **`/use-instruction`** — reuse a saved instruction as the working brief so it steers the work from
   the first turn, instead of re-deriving it each time.
 
