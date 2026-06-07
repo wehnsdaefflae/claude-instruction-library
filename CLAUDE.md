@@ -1,7 +1,8 @@
 # Project: instruction-consolidation testbed
 
 A global, command-driven library of reusable instructions lives in `~/.claude/.INSTRUCTIONS/`
-(index + one file per instruction), shared across all projects.
+(index + one subfolder per instruction, each a `MAIN.md` brief plus on-demand detail files), shared
+across all projects.
 
 Workflow:
 - **`/use-instruction`** — reuse an existing instruction: load its spec as the working brief so it

@@ -20,7 +20,7 @@ slug yourself:
 - **Bound:** if the bound slug above is non-empty, use it (UPDATE that instruction) automatically —
   the user already declared intent via `/use-instruction`, so don't ask.
 - **Unbound — suggest and confirm:** read `LIB/index.md` and compare what this conversation
-  accomplished against the existing instructions (skim candidate `LIB/<slug>.md` files when a row
+  accomplished against the existing instructions (skim candidate `LIB/<slug>/MAIN.md` files when a row
   looks close). Then **ask the user to choose** (use AskUserQuestion): offer the existing
   instruction(s) that plausibly match as "update `<slug>`" options, plus a "create a new instruction"
   option. Do not decide silently. Wait for their answer.
@@ -33,10 +33,14 @@ session reuse the slug:
    - `mkdir -p "$HOME/.claude/.INSTRUCTIONS/.active"`
    - `printf '%s\n' '<slug>' > "$HOME/.claude/.INSTRUCTIONS/.active/${CLAUDE_SESSION_ID}"`
 
-## Consolidate THIS conversation into `LIB/<slug>.md`
-Read the existing file first if it exists, then write a COMPLETE, CONCISE, GENERALIZED instruction.
-A good instruction is **specific enough to one-shot the desired result, yet general enough to apply
-across the cases it's meant for** — getting that balance right is the whole point of this step.
+## Consolidate THIS conversation into `LIB/<slug>/`
+Each instruction is a **subfolder** `LIB/<slug>/` holding a `MAIN.md` plus optional detail files.
+Create it with `mkdir -p "$HOME/.claude/.INSTRUCTIONS/<slug>"`. If the folder already exists, read its
+`MAIN.md` (and any detail files) first, then refine.
+
+`MAIN.md` is the **always-loaded brief**: COMPLETE, CONCISE, GENERALIZED — specific enough to one-shot
+the desired result, yet general enough to apply across the cases it's meant for. Getting that balance
+right is the whole point of this step.
 - **Set the generalization axis.** Decide what should vary between uses (parameterize it) vs. what
   stays fixed:
   - **Directive given:** if `$ARGUMENTS` is non-empty, treat it as the authoritative statement of
@@ -54,10 +58,15 @@ across the cases it's meant for** — getting that balance right is the whole po
 - Replace the values that vary along that axis (file names, ids, literals) with `{{named_parameters}}`
   and list them under Parameters; keep everything that should stay constant concrete and explicit.
 - Phrase steps as imperative instructions to a future agent, not a narrative of what happened.
-- If the file already exists, MERGE into its structure — refine and tighten, never append
-  duplicates.
+- **Keep MAIN.md lean — push depth into detail files.** When the instruction needs extensive material
+  (long examples, schemas, command references, edge-case handling, background), put it in a separate
+  file in the same subfolder (e.g. `LIB/<slug>/<topic>.md`) and have MAIN.md *reference* it with a
+  one-line "read `<topic>.md` when you need X". MAIN.md must stay small enough to load every time;
+  details are pulled in only on demand. Don't inline what a reader won't always need.
+- If the folder already exists, MERGE into MAIN.md and its detail files — refine and tighten, never
+  duplicate; delete detail files that no longer apply.
 
-Template:
+Template for `MAIN.md`:
 ```markdown
 ---
 slug: <kebab-case>
@@ -75,13 +84,16 @@ updated: <YYYY-MM-DD>
 ## Instructions
 1. <imperative step>
 
+## Detailed references (read on demand)
+- `<topic>.md` — <what's in it and when to read it>   ← omit this whole section if there are none
+
 ## Notes / gotchas
 - <hard-won constraints only>
 ```
 
 ## Rebuild the index
-Rewrite `LIB/index.md` from the front matter of every `*.md` file **directly in LIB** (ignore the
-`.active/` subfolder):
+Rewrite `LIB/index.md` from the front matter of every `<slug>/MAIN.md` (one per instruction subfolder;
+ignore the `.active/` folder):
 
 ```markdown
 # Inferred instruction library
@@ -93,7 +105,7 @@ done).
 
 | Slug | Use when | Updated |
 |------|----------|---------|
-| [<slug>](<slug>.md) | <when-to-use> | <updated> |
+| [<slug>](<slug>/MAIN.md) | <when-to-use> | <updated> |
 ```
 
 Finally, report to the user:

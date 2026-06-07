@@ -22,9 +22,15 @@ The library lives at `~/.claude/.INSTRUCTIONS/` and is shared across every proje
 ```
 ~/.claude/.INSTRUCTIONS/
   index.md              the catalog (shown when you run /use-instruction)
-  <slug>.md             one reusable instruction per kind of work
+  <slug>/               one subfolder per kind of work
+    MAIN.md             the always-loaded brief
+    <topic>.md          deep-detail files, read on demand
   .active/<session_id>  binding: which instruction the current session is refining
 ```
+
+Instructions use the same progressive-disclosure pattern as skills: `MAIN.md` is loaded every time,
+while bulky detail (long examples, schemas, edge cases) lives in sibling files that are read only when
+a step calls for them — so an instruction can be very thorough without flooding the context.
 
 - **New work:** just work. When it's right, `/save-instruction`. With nothing bound it offers any
   likely existing matches plus "create new" for you to choose, then writes/updates the instruction

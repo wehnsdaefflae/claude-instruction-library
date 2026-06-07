@@ -19,13 +19,16 @@ Do this:
 
 2. Ask the user which instruction to load. Wait for their answer.
 
-3. Read `LIB/<slug>.md` and adopt it as the working brief for this conversation. Bind the session so
-   `/save-instruction` will refine this exact instruction — run:
+3. Read **only** `LIB/<slug>/MAIN.md` and adopt it as the working brief for this conversation. Do NOT
+   pre-read the other files in the subfolder — `MAIN.md` lists detail files under "Detailed references"
+   and tells you when each is relevant; read `LIB/<slug>/<topic>.md` on demand, only when a step you're
+   actually performing calls for it. This keeps context lean for extensive instructions.
+   Bind the session so `/save-instruction` will refine this exact instruction — run:
    - `mkdir -p "$HOME/.claude/.INSTRUCTIONS/.active"`
    - `printf '%s\n' '<slug>' > "$HOME/.claude/.INSTRUCTIONS/.active/${CLAUDE_SESSION_ID}"`
 
 4. Tell the user which instruction is active, then ask for the inputs its Parameters need and proceed
-   following its Instructions.
+   following MAIN.md's Instructions, pulling in detail files only as the steps require.
 
 5. **When you have finished the instruction's steps, close the loop:** tell the user the instruction
    `<slug>` is complete, that they can keep refining or take further actions on top of the result,

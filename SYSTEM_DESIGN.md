@@ -19,7 +19,7 @@ generalized, reusable artifact. Three data layers, each with a different lifecyc
 | Layer | Nature | Lifecycle |
 |-------|--------|-----------|
 | **Raw capture** | Append-only log of exactly what the user typed, per session | Never edited, lossless audit trail |
-| **Consolidated instruction** | One markdown file per *kind of work*, regenerable & idempotent | Rewritten on each consolidation |
+| **Consolidated instruction** | One subfolder per *kind of work* — a `MAIN.md` brief + on-demand detail files, regenerable & idempotent | Rewritten on each consolidation |
 | **Index** | Catalog of instructions, used for surfacing/matching | Regenerated from instructions |
 
 The hard parts (and the design choices that address them):
@@ -97,21 +97,22 @@ ever contains instructions Claude got *right*.**
 ```
 ~/.claude/.INSTRUCTIONS/          GLOBAL library, shared across every project
   index.md                        the pickable catalog
-  <slug>.md                       one reusable instruction per kind of work
+  <slug>/MAIN.md                  one reusable instruction per kind of work (+ on-demand detail files)
   .active/<session_id>            binding: the slug this session is working on
 
 /use-instruction (no arg) ─▶ REUSE path (optional). Read + show the index; user picks a slug; load
-   (user-invoked)       <slug>.md as the working brief and write that slug to .active/<session_id>.
-                        Not needed for fresh work. This is the ONLY thing that surfaces the index —
-                        nothing is injected automatically at session start.
+   (user-invoked)       <slug>/MAIN.md as the working brief (detail files read on demand) and write
+                        that slug to .active/<session_id>. Not needed for fresh work. This is the ONLY
+                        thing that surfaces the index — nothing is injected automatically at start.
 
   ... user works; corrections refine the loaded instruction in-conversation ...
 
 /save-instruction [axis] ─▶ THE SUCCESS SIGNAL. "Claude got it right." Resolve the slug:
    (user-invoked)        bound (.active) → update silently; else SUGGEST likely index matches
                          + a "create new" option and let the user choose. Consolidate this
-                         conversation into <slug>.md along the generalization axis (from the
-                         optional arg, else inferred), rebuild index.md, persist the binding.
+                         conversation into <slug>/MAIN.md (pushing bulky detail into sibling files)
+                         along the generalization axis (from the optional arg, else inferred),
+                         rebuild index.md, persist the binding.
 ```
 
 `/save-instruction` alone is sufficient: starting fresh work needs no command — you work, then save, and
@@ -149,7 +150,8 @@ Why this shape:
 
 ~/.claude/.INSTRUCTIONS/            the global library (user directory)
   index.md
-  <slug>.md
+  <slug>/MAIN.md                   the always-loaded brief for an instruction
+  <slug>/<topic>.md                deep-detail files, read on demand
   .active/<session_id>             per-session binding: the active instruction slug
 ```
 
