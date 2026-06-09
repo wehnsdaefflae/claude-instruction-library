@@ -3,11 +3,13 @@ name: save-instruction
 description: Mark the current work as done correctly and capture or refine it as a reusable instruction in the global instruction library. The explicit "Claude got it right" signal. Optionally pass what the instruction should generalize over.
 disable-model-invocation: true
 argument-hint: "[optional: what to generalize the instruction for]"
-allowed-tools: Read Write Edit AskUserQuestion Bash(mkdir *) Bash(printf *) Bash(cat *) Bash(ls *) Bash(wc *)
+allowed-tools: Read Write Edit AskUserQuestion Bash(echo *) Bash(cat *) Bash(head *) Bash(mkdir *) Bash(printf *) Bash(find *) Bash(git *) Bash(ls *) Bash(wc *)
 ---
 
 Global instruction library (absolute path): !`echo "$HOME/.claude/.INSTRUCTIONS"`
 Bound slug for this session (empty if none): !`cat "$HOME/.claude/.INSTRUCTIONS/.active/${CLAUDE_SESSION_ID}" 2>/dev/null || true`
+Catalog — derived live from each instruction's front matter; there is **no stored index**:
+!`head -n 6 "$HOME"/.claude/.INSTRUCTIONS/*/MAIN.md 2>/dev/null || true`
 
 Generalization directive (optional): `$ARGUMENTS`
 
@@ -18,18 +20,27 @@ slug yourself:
 
 ## Resolve the slug
 - **Bound:** if the bound slug above is non-empty, use it (UPDATE that instruction) automatically —
-  the user already declared intent via `/use-instruction`, so don't ask.
-- **Unbound — suggest and confirm:** read `LIB/index.md` and compare what this conversation
-  accomplished against the existing instructions (skim candidate `LIB/<slug>/MAIN.md` files when a row
-  looks close). Then **ask the user to choose** (use AskUserQuestion): offer the existing
-  instruction(s) that plausibly match as "update `<slug>`" options, plus a "create a new instruction"
-  option. Do not decide silently. Wait for their answer.
+  the user already declared intent via `/use-instruction`, so don't ask. Two exceptions:
+  - **Stale binding:** if the bound slug is not present in the catalog above (it was retired), clear
+    the binding with `find "$HOME/.claude/.INSTRUCTIONS/.active" -name "${CLAUDE_SESSION_ID}" -delete`
+    and treat the session as unbound.
+  - **Sanity gate:** if what this conversation most recently accomplished is clearly unrelated to the
+    bound instruction (the session pivoted to different work after the bound instruction finished),
+    do NOT merge unrelated content into it — fall through to the unbound flow and tell the user why.
+- **Unbound — suggest and confirm:** compare what this conversation accomplished against the derived
+  catalog above (skim candidate `LIB/<slug>/MAIN.md` files when an entry looks close). Then **ask the
+  user to choose** (use AskUserQuestion): offer the existing instruction(s) that plausibly match as
+  "update `<slug>`" options, plus a "create a new instruction" option — and, if the conversation
+  revealed that an existing instruction is obsolete or wrong (not merely incomplete), a
+  "retire `<slug>`" option. Do not decide silently. Wait for their answer.
   - If they pick an existing instruction → UPDATE it.
   - If they pick "create new" → infer a short kebab-case slug from what this conversation
-    accomplished, plus a one-line description (the "when to use" documentation).
+    accomplished, plus a one-line `when:` (the "when to use" documentation).
+  - If they pick "retire" → skip to "Retire an instruction" below.
 
 Once resolved in the unbound case, persist the binding so further `/save-instruction` calls in this
-session reuse the slug:
+session reuse the slug — **only if `${CLAUDE_SESSION_ID}` is non-empty**; never write a `.active/`
+file with an empty name:
    - `mkdir -p "$HOME/.claude/.INSTRUCTIONS/.active"`
    - `printf '%s\n' '<slug>' > "$HOME/.claude/.INSTRUCTIONS/.active/${CLAUDE_SESSION_ID}"`
 
@@ -65,19 +76,19 @@ right is the whole point of this step.
   details are pulled in only on demand. Don't inline what a reader won't always need. **See "Keep files
   on-demand-sized" below for the concrete threshold and how to split to minimize reads.**
 - If the folder already exists, MERGE into MAIN.md and its detail files — refine and tighten, never
-  duplicate; delete detail files that no longer apply.
+  duplicate; delete detail files that no longer apply. (Destructive merging is safe because every
+  save ends in a git commit — see "Version & housekeeping".)
 
-Template for `MAIN.md`:
+Template for `MAIN.md` — the front matter is **exactly these four keys, in this order**:
 ```markdown
 ---
 slug: <kebab-case>
 title: <short imperative title>
+when: <ONE line — when to reuse this instruction; this line IS the catalog entry>
 updated: <YYYY-MM-DD>
 ---
 
 # <title>
-
-**When to use:** <one line>
 
 ## Parameters
 - `{{param}}` — <what it is>
@@ -92,6 +103,16 @@ updated: <YYYY-MM-DD>
 - <hard-won constraints only>
 ```
 
+**Front-matter discipline — this is what makes the catalog derivable.** Both skills build the catalog
+by reading each `MAIN.md`'s first 6 lines (`head -n 6`), so the four keys above must occupy exactly
+lines 2–5 between the `---` fences — never reorder them, add keys, or let a value wrap onto a second
+line, or it falls outside the window and vanishes from discovery. `when:` must be ONE tight line
+stating when to reuse the instruction; implementation details belong in the body, never in `when:`.
+Do **not** repeat the when-to-use text as a body line — `when:` is the single source of truth, and a
+body copy would drift. If any catalog block at the top of this prompt is missing its `when:` line or
+shows overflowing front matter, that instruction is malformed — repair its front matter as part of
+this save and mention it in your report.
+
 ## Keep files on-demand-sized (split large files, conditionally)
 `MAIN.md` is re-read in full every time the instruction is reused, so its length is a recurring cost;
 detail files are read only when their one-line trigger fires. Tune the split to **minimize the total
@@ -104,8 +125,8 @@ number of file reads across reuse** — most runs should touch only `MAIN.md`.
   unneeded file just adds a read when someone goes looking, and an empty "Detailed references" section is
   noise. A short instruction stays a single `MAIN.md`.
 - **Over threshold → move the least-always-needed sections out**, keeping the always-needed spine in MAIN
-  (front matter, When-to-use, Parameters, the numbered Instructions, the top few gotchas). Migrate long
-  examples, command/schema references, per-case edge handling, and background into detail file(s).
+  (front matter, Parameters, the numbered Instructions, the top few gotchas). Migrate long examples,
+  command/schema references, per-case edge handling, and background into detail file(s).
 - **Split along "read-together" seams to minimize reads.** Each detail file must be a **self-contained
   unit an agent opens once** for one situation — never scatter a single workflow across files it has to
   open together. Prefer **few cohesive files over many tiny ones** (N tiny files ⇒ up to N reads); merge
@@ -117,27 +138,36 @@ number of file reads across reuse** — most runs should touch only `MAIN.md`.
   crossed, push the overflow down into the right detail file (or a new one) and tighten; pull a detail
   file back up into MAIN if it shrank to a couple of lines; delete detail files that no longer apply.
 
-## Rebuild the index
-Rewrite `LIB/index.md` from the front matter of every `<slug>/MAIN.md` (one per instruction subfolder;
-ignore the `.active/` folder):
+There is **no index to rebuild** — the catalog is derived from front matter whenever either skill
+runs. Never create an `index.md`.
 
-```markdown
-# Inferred instruction library
+## Retire an instruction (only when explicitly chosen)
+Retiring is for instructions whose subject no longer exists or whose approach is invalid — not for
+incomplete ones (update those instead). After the user picks "retire `<slug>`":
+- First ensure the library is a git repo (Version & housekeeping step A below).
+- `git -C "$HOME/.claude/.INSTRUCTIONS" rm -r -q "<slug>"`
+- Skip the Consolidate step; go to Version & housekeeping steps B–C with commit message
+  `retire <slug>: <one-line reason>`. (The session's binding, if it pointed here, is cleared
+  automatically by the stale-binding check on the next save.)
 
-Reusable instructions, shared across all projects. Run `/use-instruction` to reuse one as
-the working brief, and `/save-instruction` once Claude has gotten the work right to capture or
-refine an instruction here (no command needed to start fresh work — just `/save-instruction` when
-done).
+## Version & housekeeping (every save ends here)
+The library is a git repository — every save is a commit, so destructive merges are always auditable
+and reversible (`git -C "$HOME/.claude/.INSTRUCTIONS" log` / `revert`).
+- **A. Ensure the library is a git repo (idempotent).** If
+  `git -C "$HOME/.claude/.INSTRUCTIONS" rev-parse --is-inside-work-tree` fails, run
+  `git -C "$HOME/.claude/.INSTRUCTIONS" init` and create a `.gitignore` containing the single line
+  `.active/` (session bindings are ephemeral state, not library content).
+- **B. Prune stale bindings.**
+  `find "$HOME/.claude/.INSTRUCTIONS/.active" -type f -mtime +30 -delete 2>/dev/null || true`
+- **C. Commit.** `git -C "$HOME/.claude/.INSTRUCTIONS" add -A` then
+  `git -C "$HOME/.claude/.INSTRUCTIONS" commit -m "<save|retire> <slug>: <one-line summary>"`.
 
-| Slug | Use when | Updated |
-|------|----------|---------|
-| [<slug>](<slug>/MAIN.md) | <when-to-use> | <updated> |
-```
-
+## Report
 Finally, report to the user:
-- which slug you created or updated,
+- which slug you created, updated, or retired,
 - **what changed** — for a new instruction, a one-line description of what was captured; for an
   update, a short bullet list of what you added, revised, or dropped relative to the previous
-  version, and
+  version,
 - **the generalization axis** you used — and, if you inferred it (no `$ARGUMENTS`), say so explicitly
-  so the user can re-run with a directive if it's wrong.
+  so the user can re-run with a directive if it's wrong, and
+- the commit message you used.

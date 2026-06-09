@@ -1,177 +1,149 @@
-# Auto-consolidating instruction library for Claude Code
+# Command-driven instruction library for Claude Code
 
-**Goal.** Claude Code behaves normally for the user, but in the background it watches what the
-user asks for, and over time distills it into a reusable, indexed library of *instructions*
-under `./.INSTRUCTIONS/`. When a new session starts, the relevant instructions are surfaced so the
-user can reuse a polished instruction instead of re-deriving it each time.
+**Goal.** Claude Code behaves normally, but on an explicit success signal it distills the
+conversation into a reusable, generalized *instruction* under `~/.claude/.INSTRUCTIONS/`. Next time
+you do that kind of work, you load the polished instruction instead of re-deriving it. The library
+only ever contains instructions you confirmed were correct.
 
-All Claude Code features referenced here were verified against the official docs on 2026-06-04
-(`code.claude.com/docs/en/hooks`, `/skills`, `/headless`).
+Claude Code features referenced here were verified against the official docs
+(`code.claude.com/docs/en/skills`, `/hooks`, `/slash-commands`) on 2026-06-10.
 
 ---
 
 ## 1. The problem, independent of Claude Code
 
 This is **intent / spec mining**: turning a noisy, append-only stream of user utterances
-(instructions, mid-conversation corrections, clarifications, "no, do it this way instead") into a clean,
-generalized, reusable artifact. Three data layers, each with a different lifecycle:
+(instructions, mid-conversation corrections, "no, do it this way instead") into a clean, generalized,
+reusable artifact. Two data layers:
 
 | Layer | Nature | Lifecycle |
 |-------|--------|-----------|
-| **Raw capture** | Append-only log of exactly what the user typed, per session | Never edited, lossless audit trail |
-| **Consolidated instruction** | One subfolder per *kind of work* — a `MAIN.md` brief + on-demand detail files, regenerable & idempotent | Rewritten on each consolidation |
-| **Index** | Catalog of instructions, used for surfacing/matching | Regenerated from instructions |
+| **Consolidated instruction** | One subfolder per *kind of work* — a `MAIN.md` brief + on-demand detail files, regenerable & idempotent | Rewritten on each save; every save is a git commit |
+| **Catalog** | Slug + one-line "when to use" per instruction, for surfacing/matching | **Derived** from front matter on read — never stored |
 
-The hard parts (and the design choices that address them):
+The hard parts and the choices that address them:
 
 - **Reusable vs. one-off.** Most of what a user says is session-specific ("fix line 42"). Only the
-  *generalizable procedure* belongs in an instruction. → Consolidation must **generalize and
-  parameterize** (replace concrete file names/values with named slots), and drop one-offs.
+  *generalizable procedure* belongs in an instruction. → Consolidation **generalizes and
+  parameterizes** (concrete values become `{{named slots}}`) and drops one-offs.
 - **Corrections override.** Later instructions supersede earlier ones in the same session. →
-  Consolidation reads the log **in order** and keeps the final intent, not the first attempt.
-- **Idempotent merge.** Re-running on a session that's already captured must update, not duplicate.
-  → Instructions are keyed by a stable slug; consolidation merges into the existing file.
-- **Clustering into kinds of work.** When does a session belong to an existing instruction vs. a new
-  one? → The consolidator is given the current index and decides "extend `X`" or "create new".
-- **Cost.** Generalization needs an LLM; running one every turn is wasteful. → **Capture cheaply
-  (no LLM), consolidate only at boundaries (LLM).**
+  Consolidation keeps the final intent, not the first attempt.
+- **Idempotent merge.** Re-running on already-captured work must update, not duplicate. → Instructions
+  are keyed by a stable slug; consolidation merges into the existing file. Every merge is a commit, so
+  a bad one is revertible.
+- **Generalization axis.** What should vary between uses vs. stay fixed? → Resolved at *save* time
+  (from the optional argument, else inferred, else asked), so reuse needs no further intervention.
+- **No catalog drift.** A hand-maintained index inevitably diverges from the instructions. → The
+  catalog is **derived from front matter** every time a skill runs; there is nothing to rebuild.
 
 ---
 
 ## 2. Verified Claude Code building blocks
 
-### Hooks (`.claude/settings.json`)
-Shell/HTTP/MCP/`prompt`/`agent` handlers fired at lifecycle events. JSON arrives on **stdin**;
-every event includes `session_id`, `transcript_path`, `cwd`. Relevant events & powers:
-
-- **SessionStart** — cannot block; **injects context** via plain stdout *or*
-  `hookSpecificOutput.additionalContext`. → surface the library at session open.
-- **UserPromptSubmit** — receives the literal `prompt` field; can inject context or block. →
-  cheaply capture every user utterance.
-- **SessionEnd** — cleanup/archival point; cannot block. → run the (expensive) consolidation once
-  per session at a natural boundary.
-- **Stop** — fires after each assistant turn; can block to force continuation. (Alternative
-  consolidation trigger if you want mid-session updates — more costly.)
-- **FileChanged** (with `watchPaths` set in a SessionStart response) — react to manual edits of
-  `.INSTRUCTIONS/*.md` (e.g. re-index). Optional.
-
-Verified handler fields: `type` (`command|http|mcp_tool|prompt|agent`), `command`, `args`,
-`timeout`, **`async`** (run in background, don't block), **`asyncRewake`** (background + wake Claude
-on exit 2), **`statusMessage`** (spinner text), `once`, `if`. So background work is first-class.
-
-### Headless mode (`claude -p`)
-`claude -p "<prompt>" --allowedTools "Read,Write,Edit" --permission-mode acceptEdits` runs
-non-interactively in `cwd`, reads stdin, writes files. This is the **consolidation engine** a
-command-hook calls. Notes:
-- `--output-format json` exposes `total_cost_usd` for spend tracking.
-- User-invoked skills are **not** available under `-p` — pass the full request in the prompt.
-- A headless call started inside a hook would itself load project hooks and could re-trigger
-  SessionEnd → **recursion**. Guard with an env var (see scaffold) or `--bare` (note: `--bare`
-  needs `ANTHROPIC_API_KEY`/`apiKeyHelper`, skipping OAuth).
-
 ### Skills (`.claude/skills/<name>/SKILL.md`)
-YAML frontmatter + body. Relevant fields: `name`, `description`, `disable-model-invocation: true`
-(user-only, for side-effecting actions), `user-invocable: false` (Claude-only background
-knowledge), `allowed-tools`, **`context: fork`** + `agent:` (run the skill in an isolated subagent
-with no main-chat history), `argument-hint`, `$ARGUMENTS`/`$1`. → home for an on-demand,
-user-triggered "consolidate this session now, named" action.
+YAML frontmatter + body. Fields used here: `name`, `description`, `disable-model-invocation: true`
+(user-only — saving and loading are side-effecting, so the model must not auto-fire them),
+`allowed-tools`, `argument-hint`, and `$ARGUMENTS` substitution.
 
-### CLAUDE.md `@`-imports
-`@./.INSTRUCTIONS/index.md` in `CLAUDE.md` expands the index into every session's context at
-startup — the always-on way to "offer" the library (simpler than, or complementary to, the
-SessionStart hook).
+**Dynamic context injection (`` !`cmd` ``).** A line like `` !`head -n 6 .../MAIN.md` `` in a SKILL.md
+body is executed *before* the skill content reaches the model, and its stdout replaces the line. This
+is how the catalog is injected live with no stored file. The commands used this way must be listed in
+`allowed-tools` (e.g. `Bash(head *)`, `Bash(cat *)`, `Bash(echo *)`), and `${CLAUDE_SESSION_ID}` is a
+documented skill substitution token available in the body and these commands.
 
-### `agent` hook type
-`type: "agent"` runs a native subagent from a hook (no subprocess, no separate auth) — the most
-elegant consolidation engine, at the cost of being newer/less transparent than `claude -p`. The
-scaffold uses `claude -p` for debuggability and lists this as the upgrade path.
+### Hooks (`~/.claude/settings.json`)
+`SessionStart` supports matchers `startup`, `resume`, `clear`, `compact`. It receives event JSON on
+stdin (including `session_id`, `source`) and can inject context via
+`hookSpecificOutput.additionalContext`. Hook-injected context does **not** survive compaction — which
+is exactly why the `compact` matcher exists: it lets us re-inject after each compaction. We use it for
+a single, tightly-scoped reminder (see §3).
+
+### Git
+The library directory is a git repository. `/save-instruction` commits after every
+create/update/retire, making destructive merges auditable (`git log`) and reversible (`git revert`),
+and giving cross-machine sync for free.
 
 ---
 
-## 3. Architecture (command-driven, global library)
+## 3. Architecture
 
-**Principle: a single global library of instructions in the user directory; the user drives it
-with two commands; consolidation happens only on an explicit success signal, so the library only
-ever contains instructions Claude got *right*.**
+**Principle: a single global library; the user drives it with two commands; consolidation happens
+only on an explicit success signal; the catalog is derived, never stored.**
 
 ```
 ~/.claude/.INSTRUCTIONS/          GLOBAL library, shared across every project
-  index.md                        the pickable catalog
+  .git/                           every save is a commit
+  .gitignore                      ignores .active/
   <slug>/MAIN.md                  one reusable instruction per kind of work (+ on-demand detail files)
-  .active/<session_id>            binding: the slug this session is working on
+  <slug>/<topic>.md               deep-detail files, read on demand
+  .active/<session_id>            binding: the slug this session is refining (ephemeral, gitignored)
+```
 
-/use-instruction (no arg) ─▶ REUSE path (optional). Read + show the index; user picks a slug; load
-   (user-invoked)       <slug>/MAIN.md as the working brief (detail files read on demand) and write
-                        that slug to .active/<session_id>. Not needed for fresh work. This is the ONLY
-                        thing that surfaces the index — nothing is injected automatically at start.
+There is **no `index.md`**. Both skills carry a `` !`head -n 6 .../*/MAIN.md` `` line that injects the
+catalog (slug / title / `when` / updated, per instruction) at load time, derived fresh from the front
+matter.
+
+```
+/use-instruction [slug|desc] ─▶ REUSE (optional). Resolve the instruction from the argument (direct
+   (user-invoked)       load on an unambiguous match) or by showing the derived catalog and asking;
+                        load <slug>/MAIN.md as the working brief (detail files on demand); bind the
+                        session by writing the slug to .active/<session_id>.
 
   ... user works; corrections refine the loaded instruction in-conversation ...
 
-/save-instruction [axis] ─▶ THE SUCCESS SIGNAL. "Claude got it right." Resolve the slug:
-   (user-invoked)        bound (.active) → update silently; else SUGGEST likely index matches
-                         + a "create new" option and let the user choose. Consolidate this
-                         conversation into <slug>/MAIN.md (pushing bulky detail into sibling files)
-                         along the generalization axis (from the optional arg, else inferred),
-                         rebuild index.md, persist the binding.
+/save-instruction [axis] ─▶ THE SUCCESS SIGNAL. Resolve the slug: bound (.active) → update (unless the
+   (user-invoked)        binding is stale or the work clearly pivoted — then fall through); else
+                         SUGGEST catalog matches + "create new" (+ "retire" for an obsolete one) and
+                         let the user choose. Consolidate this conversation into <slug>/MAIN.md
+                         (pushing bulky detail into sibling files) along the generalization axis (from
+                         the optional arg, else inferred), then COMMIT.
 ```
 
-`/save-instruction` alone is sufficient: starting fresh work needs no command — you work, then save, and
-the slug is generated. `/use-instruction` exists only for the reuse direction, where loading a proven spec
-*up front* steers the work instead of re-deriving it.
+`/save-instruction` alone suffices for fresh work: you work, then save, and the slug is generated.
+`/use-instruction` exists only for the reuse direction.
 
 Why this shape:
 - **Quality gate.** Nothing enters the library automatically. `/save-instruction` is the human saying
-  "this attempt was correct" — so the library is a set of *validated* instructions, not raw attempts.
-  This is the answer to "we need a way to know when Claude gets it right."
-- **Pick → refine → fold back.** `/use-instruction` makes X the brief; whatever the user corrects while
-  working is, on `/save-instruction`, merged back into X (corrected intent wins over the superseded spec).
-  When the instruction's steps finish, `/use-instruction` closes the loop — it reminds the user they
-  can refine further and re-save into X (the session is still bound).
-- **Global & reusable.** Library lives in `~/.claude/.INSTRUCTIONS/`, so any conversation in any
-  directory can pick from it.
-- **Stateful binding.** The active slug is persisted to
-  `~/.claude/.INSTRUCTIONS/.active/<session_id>` by `/use-instruction` and read by `/save-instruction`,
-  so the slug never needs to be typed. If nothing is bound, `/save-instruction` suggests likely index
-  matches and a "create new" option for the user to confirm (auto-generating the slug + a one-line doc
-  on new).
-- **Generalization axis (optional arg).** `/save-instruction`'s one argument is *not* a slug — it
-  states what the instruction should generalize over (what varies between uses), so the consolidator
-  knows what to parameterize vs. pin down. If omitted: when the axis is clear from context it's used
-  and reported; when it's **ambiguous**, the skill asks via AskUserQuestion (clickable candidate axes
-  + free-text "Other") rather than guessing. This is the knob for the specific-enough-yet-general-
-  enough balance that makes an instruction reusable — resolved at save time so reuse needs no
-  intervention.
+  "this attempt was correct" — the library is a set of *validated* instructions.
+- **Pick → refine → fold back.** `/use-instruction` makes X the brief; whatever the user corrects is,
+  on `/save-instruction`, merged back into X (corrected intent wins).
+- **Derived catalog.** No rebuild step exists, so no rebuild step can be wrong, and manual edits to a
+  `MAIN.md` show up in the catalog instantly. The front-matter contract (four keys, lines 2–5) is what
+  makes `head -n 6` a complete extractor.
+- **Stateful binding.** The active slug is persisted to `.active/<session_id>`, so it is never typed.
+  A stale binding (slug retired) or a clear topic pivot makes `/save-instruction` fall through to the
+  suggest-and-confirm flow rather than silently merging into the wrong instruction.
 
-### Layout
-```
-<skills install dir>/.claude/       project .claude/ (this testbed) OR user ~/.claude/
-  skills/use-instruction/SKILL.md          reuse-an-existing-instruction command (optional)
-  skills/save-instruction/SKILL.md         success-signal / consolidate command
+### Surviving compaction
+A `SessionStart` hook registered for the `compact` matcher
+(`hooks/bound-instruction-reminder.py`) reads `.active/<session_id>`; if this session is bound to an
+instruction, it injects a one-line reminder to re-read that instruction's `MAIN.md` (whose exact steps
+the compaction may have summarized away). Unbound sessions get nothing. The hook always exits 0 and
+guards against empty/path-traversal session ids — a SessionStart hook must never disrupt a session.
 
-~/.claude/.INSTRUCTIONS/            the global library (user directory)
-  index.md
-  <slug>/MAIN.md                   the always-loaded brief for an instruction
-  <slug>/<topic>.md                deep-detail files, read on demand
-  .active/<session_id>             per-session binding: the active instruction slug
-```
-
-To make `/use-instruction` and `/save-instruction` available in **every** conversation (not just this project),
-move `skills/` into `~/.claude/skills/`. The library itself is already global. This testbed keeps the
-skills project-local so testing doesn't alter your global Claude Code setup. There is no hook and no
-`settings.json` — the index surfaces only when you run `/use-instruction`.
+### Deployment
+This repo is the single source of truth. `./deploy.sh` **copies** (not symlinks) the skills into
+`~/.claude/skills/` and the hook into `~/.claude/hooks/`, registers the hook in `settings.json`
+idempotently (preserving existing keys, baking in the concrete absolute path), and ensures the library
+is a git repo. Re-run after any edit; never hand-edit the deployed copies.
 
 ---
 
 ## 4. Tradeoffs & open questions
 
-- **Consolidation quality** lives entirely in `save-instruction/SKILL.md` — the real product surface.
-  Iterate that prompt; everything else is plumbing.
-- **Binding lifecycle.** `.active/<session_id>` files persist after the session ends and accumulate
-  over time. They're tiny; prune them periodically (e.g. a SessionEnd cleanup or a cron). The
-  binding is keyed on `${CLAUDE_SESSION_ID}`, so resuming a session keeps its instruction.
-- **Cost.** `/save-instruction` runs the model once, in your interactive session (no extra headless call).
-  Only fires when you ask.
-- **Skills are interactive-only.** `/use-instruction` and `/save-instruction` work in the interactive CLI, not
-  under `claude -p`.
-- **Discoverability vs. blast radius.** Promoting the skills to `~/.claude/` makes them universal but
-  adds two always-available commands to every session — a deliberate choice, hence not done silently.
+- **Consolidation quality** lives in `save-instruction/SKILL.md` — the real product surface. Iterate
+  that prompt; everything else is plumbing.
+- **Binding lifecycle.** `.active/<session_id>` files are gitignored and pruned automatically (>30
+  days) on each save, so they no longer accumulate. The binding is keyed on `${CLAUDE_SESSION_ID}`, so
+  resuming a session keeps its instruction.
+- **`${CLAUDE_SESSION_ID}` inside `` !`...` ``.** Documented as a skill substitution token; if it ever
+  fails to expand, the bound-slug line reads an empty path and the skill safely falls back to the
+  unbound (ask) flow — a benign degradation, never wrong data.
+- **Skills are interactive-only.** Both commands work in the interactive CLI, not under `claude -p`.
+- **Cost.** `/save-instruction` runs the model once, in your interactive session — no extra headless
+  call, and only when you ask.
+- **Discoverability vs. blast radius.** The two commands are always available once deployed — a
+  deliberate choice, hence `deploy.sh` is explicit, not silent. The catalog is surfaced only on skill
+  invocation; nothing is injected at session start.
+- **Catalog scale.** `head -n 6` over every instruction is trivial at tens of instructions. At
+  hundreds, a `--grep`/category filter or tiered injection would be the next step.
