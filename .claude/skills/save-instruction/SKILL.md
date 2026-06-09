@@ -3,7 +3,7 @@ name: save-instruction
 description: Mark the current work as done correctly and capture or refine it as a reusable instruction in the global instruction library. The explicit "Claude got it right" signal. Optionally pass what the instruction should generalize over.
 disable-model-invocation: true
 argument-hint: "[optional: what to generalize the instruction for]"
-allowed-tools: Read Write Edit AskUserQuestion Bash(mkdir *) Bash(printf *) Bash(cat *) Bash(ls *)
+allowed-tools: Read Write Edit AskUserQuestion Bash(mkdir *) Bash(printf *) Bash(cat *) Bash(ls *) Bash(wc *)
 ---
 
 Global instruction library (absolute path): !`echo "$HOME/.claude/.INSTRUCTIONS"`
@@ -62,7 +62,8 @@ right is the whole point of this step.
   (long examples, schemas, command references, edge-case handling, background), put it in a separate
   file in the same subfolder (e.g. `LIB/<slug>/<topic>.md`) and have MAIN.md *reference* it with a
   one-line "read `<topic>.md` when you need X". MAIN.md must stay small enough to load every time;
-  details are pulled in only on demand. Don't inline what a reader won't always need.
+  details are pulled in only on demand. Don't inline what a reader won't always need. **See "Keep files
+  on-demand-sized" below for the concrete threshold and how to split to minimize reads.**
 - If the folder already exists, MERGE into MAIN.md and its detail files — refine and tighten, never
   duplicate; delete detail files that no longer apply.
 
@@ -90,6 +91,31 @@ updated: <YYYY-MM-DD>
 ## Notes / gotchas
 - <hard-won constraints only>
 ```
+
+## Keep files on-demand-sized (split large files, conditionally)
+`MAIN.md` is re-read in full every time the instruction is reused, so its length is a recurring cost;
+detail files are read only when their one-line trigger fires. Tune the split to **minimize the total
+number of file reads across reuse** — most runs should touch only `MAIN.md`.
+
+- **Threshold.** Keep `MAIN.md` lean — aim **≤ ~150 lines**, hard ceiling **~250 lines**. Judge from the
+  Read line numbers, or `ls -l "$HOME/.claude/.INSTRUCTIONS/<slug>/MAIN.md"` for bytes. The same ceiling
+  applies to each detail file.
+- **Under threshold → do NOT split.** One file = one read. Never create detail files speculatively: an
+  unneeded file just adds a read when someone goes looking, and an empty "Detailed references" section is
+  noise. A short instruction stays a single `MAIN.md`.
+- **Over threshold → move the least-always-needed sections out**, keeping the always-needed spine in MAIN
+  (front matter, When-to-use, Parameters, the numbered Instructions, the top few gotchas). Migrate long
+  examples, command/schema references, per-case edge handling, and background into detail file(s).
+- **Split along "read-together" seams to minimize reads.** Each detail file must be a **self-contained
+  unit an agent opens once** for one situation — never scatter a single workflow across files it has to
+  open together. Prefer **few cohesive files over many tiny ones** (N tiny files ⇒ up to N reads); merge
+  related on-demand material under one topic. Split a detail file *further* only when its parts have
+  **independent triggers** (so a reader still opens just one).
+- **Every MAIN reference names its trigger** ("read `<topic>.md` when you need X") so the reader opens a
+  detail file only in that case — and opens exactly the one it needs.
+- **On update, rebalance.** After merging new material, re-check `MAIN.md` against the threshold: if it
+  crossed, push the overflow down into the right detail file (or a new one) and tighten; pull a detail
+  file back up into MAIN if it shrank to a couple of lines; delete detail files that no longer apply.
 
 ## Rebuild the index
 Rewrite `LIB/index.md` from the front matter of every `<slug>/MAIN.md` (one per instruction subfolder;
