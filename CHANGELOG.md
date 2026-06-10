@@ -92,8 +92,8 @@ matter now requires a `when:` key.
   library under `~/.claude/.INSTRUCTIONS/`, and per-session bindings.
 - Renamed the unit from "task" to "instruction" across commands and docs.
 
-[Unreleased]: https://github.com/wehnsdaefflae/claude-instruction-library/compare/ec00962...HEAD
-[0.3.0]: https://github.com/wehnsdaefflae/claude-instruction-library/compare/2e3ec79...ec00962
-[0.2.1]: https://github.com/wehnsdaefflae/claude-instruction-library/compare/7d5e61d...2e3ec79
-[0.2.0]: https://github.com/wehnsdaefflae/claude-instruction-library/compare/6a78d20...7d5e61d
-[0.1.0]: https://github.com/wehnsdaefflae/claude-instruction-library/commits/4778322
+[Unreleased]: https://github.com/wehnsdaefflae/claude-instruction-library/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/wehnsdaefflae/claude-instruction-library/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/wehnsdaefflae/claude-instruction-library/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/wehnsdaefflae/claude-instruction-library/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/wehnsdaefflae/claude-instruction-library/releases/tag/v0.1.0
