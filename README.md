@@ -83,6 +83,18 @@ your existing settings), and ensures the library directory is a git repo. `/use-
 `/save-instruction` are then available in every conversation. The library directory is created on
 first save if it doesn't exist yet.
 
+## Releasing
+
+Cutting a release is one command once the changelog is updated:
+
+1. Move your `## [Unreleased]` bullets into a new `## [X.Y.Z] - YYYY-MM-DD` section, add its
+   `[X.Y.Z]: …/compare/…` link reference, and commit that.
+2. `./release.sh X.Y.Z` — extracts that section's notes, tags `vX.Y.Z` at `HEAD`, pushes, and creates
+   the matching GitHub release (marked Latest only if it's the highest version).
+
+Run `./release.sh X.Y.Z --dry-run` first to preview the notes and planned actions without changing
+anything.
+
 ## Notes
 
 - Skills are interactive-only — the commands work in the `claude` CLI, not under `claude -p`.
